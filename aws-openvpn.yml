@@ -1,5 +1,3 @@
-# TODO : Report password to user 
-
 AWSTemplateFormatVersion: "2010-09-09"
 Description: This cfn template is to easily setup openvpn on ec2 instance
 Parameters:
@@ -17,6 +15,10 @@ Parameters:
     Default: 0.0.0.0/0
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x. Default is 0.0.0.0/0 and is less safe.
+  VPNAdminPassword:
+    Description: Password for openvpn admin 
+    Type : String
+    NoEcho: true
 
 Resources:
     EC2Instance:
@@ -32,11 +34,37 @@ Resources:
           SecurityGroups:
                - !Ref AllowSSHAndHTTP
           UserData: 
-            Fn::Base64: |
+            Fn::Base64: !Sub |
                       #!/bin/bash
                       yum -y install https://as-repository.openvpn.net/as-repo-amzn2.rpm
                       yum -y install openvpn-as
 
+                      SOCKET_FILE="/usr/local/openvpn_as/etc/sock/sagent.localroot"
+                      TIMEOUT=60
+
+                      # Function to check if the socket file is available
+                      is_socket_available() {
+                          [[ -S "$SOCKET_FILE" ]]
+                      }
+
+                      # Wait for the socket file to be available
+                      wait_for_socket() {
+                          local end_time=$((SECONDS + TIMEOUT))
+
+                          until is_socket_available || [[ $SECONDS -ge $end_time ]]; do
+                              sleep 1
+                          done
+
+                          if is_socket_available; then
+                              echo "Socket file is available: $SOCKET_FILE"
+                          else
+                              echo "Timeout: Socket file is not available"
+                          fi
+                      }
+
+                      # Wait for the socket file
+                      wait_for_socket
+                      sacli --user openvpn --new_pass "${VPNAdminPassword}" SetLocalPassword
     SessionManagerRole:
       Type: 'AWS::IAM::Role'
       Properties:
